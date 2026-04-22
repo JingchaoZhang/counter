@@ -98,11 +98,58 @@
   .stat-mini-val { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
   .stat-mini-lbl { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 0.4px; }
   .chart-wrap-mini { position: relative; height: 120px; margin-top: 4px; }
-  .item-actions { margin-top: 10px; display: flex; justify-content: flex-end; }
+  .item-actions { margin-top: 10px; display: flex; justify-content: flex-end; gap: 4px; }
   .remove-btn {
     background: transparent; border: none; color: #dc2626;
     font-size: 13px; cursor: pointer; padding: 6px 10px;
   }
+
+  /* History list inside expanded item */
+  .history-section {
+    margin-top: 14px; padding-top: 12px;
+    border-top: 1px solid #f1f5f9;
+  }
+  .history-head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 8px;
+  }
+  .history-head h4 {
+    margin: 0; font-size: 13px; font-weight: 600; color: #475569;
+    text-transform: uppercase; letter-spacing: 0.4px;
+  }
+  .history-add {
+    background: #f1f5f9; border: none; border-radius: 8px;
+    padding: 6px 10px; font-size: 12px; font-weight: 600;
+    color: #0f172a; cursor: pointer; font-family: inherit;
+  }
+  .hist-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 0; border-top: 1px solid #f8fafc;
+  }
+  .hist-row:first-child { border-top: none; }
+  .hist-date {
+    flex: 1; font-size: 14px; color: #334155;
+    font-variant-numeric: tabular-nums;
+  }
+  .hist-date small { color: #94a3b8; margin-left: 4px; font-size: 11px; }
+  .hist-controls { display: flex; align-items: center; gap: 4px; }
+  .hist-btn {
+    width: 28px; height: 28px; border: none; border-radius: 6px;
+    font-size: 14px; font-weight: 700; cursor: pointer;
+    background: #f1f5f9; color: #475569;
+    font-family: inherit;
+  }
+  .hist-btn:active { transform: scale(0.92); }
+  .hist-btn:disabled { opacity: 0.3; }
+  .hist-count {
+    min-width: 40px; text-align: center;
+    font-size: 15px; font-weight: 700; color: #0f172a;
+    font-variant-numeric: tabular-nums;
+    padding: 4px 6px; border: 1px solid transparent; border-radius: 6px;
+    cursor: pointer; -webkit-user-select: none; user-select: none;
+  }
+  .hist-count:hover { background: #f8fafc; border-color: #e2e8f0; }
+  .hist-empty { color: #94a3b8; font-size: 13px; padding: 8px 0; text-align: center; }
 
   /* Add button */
   .add-btn {
@@ -199,10 +246,10 @@
 
 <div id="mainContent"></div>
 
-<!-- Add item modal -->
+<!-- Add/edit item modal -->
 <div class="modal-backdrop" id="addModal">
   <div class="modal">
-    <h2>Add item to track</h2>
+    <h2 id="modalTitle">Add item to track</h2>
     <div class="field">
       <label>Name</label>
       <input type="text" id="newName" placeholder="e.g. Apples, Pushups, Water glasses" maxlength="40">
@@ -214,7 +261,7 @@
     </div>
     <div class="modal-buttons">
       <button class="btn-cancel" onclick="closeAdd()">Cancel</button>
-      <button class="btn-save" onclick="saveItem()">Add</button>
+      <button class="btn-save" id="saveItemBtn" onclick="saveItem()">Add</button>
     </div>
   </div>
 </div>
@@ -246,7 +293,8 @@ const EMOJI_CHOICES = ['🍎','💧','🏃','💪','📚','☕','🥗','💊','�
 let state = { items: [], log: [] };
 let expanded = new Set(JSON.parse(localStorage.getItem(EXPANDED_KEY) || '[]'));
 let charts = {};
-let selectedEmoji = '⭐';
+let selectedEmoji = '';
+let editingItemId = null;
 
 // ============================================================
 // Backend communication
@@ -343,6 +391,10 @@ function getStats(itemId) {
 // ============================================================
 async function changeCount(itemId, delta) {
   const date = todayKey();
+  return changeCountForDate(itemId, date, delta);
+}
+
+async function changeCountForDate(itemId, date, delta) {
   const current = getCount(itemId, date);
   const next = Math.max(0, current + delta);
 
@@ -356,12 +408,13 @@ async function changeCount(itemId, delta) {
   }
   render();
 
-  // Pulse animation
-  const el = document.querySelector(`[data-count="${itemId}"]`);
-  if (el) {
-    el.style.transition = 'transform 0.15s';
-    el.style.transform = 'scale(1.2)';
-    setTimeout(() => el.style.transform = 'scale(1)', 150);
+  if (date === todayKey()) {
+    const el = document.querySelector(`[data-count="${itemId}"]`);
+    if (el) {
+      el.style.transition = 'transform 0.15s';
+      el.style.transform = 'scale(1.2)';
+      setTimeout(() => el.style.transform = 'scale(1)', 150);
+    }
   }
 
   try {
@@ -370,6 +423,77 @@ async function changeCount(itemId, delta) {
   } catch (err) {
     setSync('Failed to save — will retry on refresh', 'error');
   }
+}
+
+async function setCountForDate(itemId, date, count) {
+  const target = Math.max(0, Math.floor(Number(count) || 0));
+  const existing = state.log.find(r => r.itemId === itemId && r.date === date);
+  if (existing) {
+    if (target === 0) state.log = state.log.filter(r => !(r.itemId === itemId && r.date === date));
+    else existing.count = target;
+  } else if (target > 0) {
+    state.log.push({ itemId, date, count: target });
+  }
+  render();
+
+  try {
+    await api('setCount', { id: itemId, date, count: target });
+    localStorage.setItem(CACHE_KEY, JSON.stringify(state));
+  } catch (err) {
+    setSync('Failed to save — will retry on refresh', 'error');
+  }
+}
+
+function promptSetCount(itemId, date) {
+  const current = getCount(itemId, date);
+  const input = prompt(`Set count for ${formatDateShort(date)}:`, String(current));
+  if (input === null) return;
+  const n = Number(input);
+  if (!Number.isFinite(n) || n < 0) { alert('Please enter a number 0 or higher'); return; }
+  setCountForDate(itemId, date, Math.floor(n));
+}
+
+function openBackdate(itemId) {
+  // Prompt for date (default: yesterday)
+  const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+  const defaultDate = `${yesterday.getFullYear()}-${String(yesterday.getMonth()+1).padStart(2,'0')}-${String(yesterday.getDate()).padStart(2,'0')}`;
+  const dateStr = prompt('Which date? (YYYY-MM-DD)', defaultDate);
+  if (!dateStr) return;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) { alert('Please use YYYY-MM-DD format'); return; }
+  const countStr = prompt(`How many on ${formatDateShort(dateStr)}?`, '1');
+  if (countStr === null) return;
+  const n = Number(countStr);
+  if (!Number.isFinite(n) || n < 0) { alert('Please enter a number 0 or higher'); return; }
+  setCountForDate(itemId, dateStr, Math.floor(n));
+}
+
+function formatDateShort(key) {
+  const [y, m, d] = key.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
+  if (date.getTime() === today.getTime()) return 'Today';
+  if (date.getTime() === yesterday.getTime()) return 'Yesterday';
+  return date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+function renderHistoryRows(itemId) {
+  const rows = state.log
+    .filter(r => r.itemId === itemId && r.count > 0)
+    .sort((a, b) => b.date.localeCompare(a.date));
+  if (rows.length === 0) {
+    return '<div class="hist-empty">No entries yet. Tap + above to log today, or "Add past day".</div>';
+  }
+  return rows.map(r => `
+    <div class="hist-row">
+      <div class="hist-date">${formatDateShort(r.date)}<small>${r.date}</small></div>
+      <div class="hist-controls">
+        <button class="hist-btn" onclick="changeCountForDate('${itemId}','${r.date}',-1)" ${r.count === 0 ? 'disabled' : ''}>−</button>
+        <span class="hist-count" onclick="promptSetCount('${itemId}','${r.date}')">${r.count}</span>
+        <button class="hist-btn" onclick="changeCountForDate('${itemId}','${r.date}',1)">+</button>
+      </div>
+    </div>
+  `).join('');
 }
 
 async function addItemAction(name, emoji) {
@@ -437,7 +561,15 @@ function render() {
             <div class="stat-mini"><div class="stat-mini-val">${stats.days}</div><div class="stat-mini-lbl">Days</div></div>
           </div>
           <div class="chart-wrap-mini"><canvas id="chart-${item.id}"></canvas></div>
+          <div class="history-section">
+            <div class="history-head">
+              <h4>History</h4>
+              <button class="history-add" onclick="openBackdate('${item.id}')">+ Add past day</button>
+            </div>
+            <div id="history-${item.id}">${renderHistoryRows(item.id)}</div>
+          </div>
           <div class="item-actions">
+            <button class="remove-btn" style="color:#475569" onclick="openEdit('${item.id}')">Edit</button>
             <button class="remove-btn" onclick="removeItemAction('${item.id}')">Remove item</button>
           </div>
         </div>
@@ -527,13 +659,36 @@ function toggleExpand(id) {
 }
 
 function openAdd() {
+  editingItemId = null;
+  document.getElementById('modalTitle').textContent = 'Add item to track';
+  document.getElementById('saveItemBtn').textContent = 'Add';
   document.getElementById('addModal').classList.add('open');
   document.getElementById('newName').value = '';
   document.getElementById('newEmoji').value = '';
-  selectedEmoji = EMOJI_CHOICES[0];
+  selectedEmoji = '';
   renderEmojiPicker();
   setTimeout(() => document.getElementById('newName').focus(), 100);
 }
+
+function openEdit(id) {
+  const item = state.items.find(i => i.id === id);
+  if (!item) return;
+  editingItemId = id;
+  document.getElementById('modalTitle').textContent = 'Edit item';
+  document.getElementById('saveItemBtn').textContent = 'Save';
+  document.getElementById('addModal').classList.add('open');
+  document.getElementById('newName').value = item.name;
+  // If their current emoji is in our choices, select it; otherwise put it in custom
+  if (EMOJI_CHOICES.includes(item.emoji)) {
+    selectedEmoji = item.emoji;
+    document.getElementById('newEmoji').value = '';
+  } else {
+    selectedEmoji = '';
+    document.getElementById('newEmoji').value = item.emoji;
+  }
+  renderEmojiPicker();
+}
+
 function closeAdd() { document.getElementById('addModal').classList.remove('open'); }
 
 function renderEmojiPicker() {
@@ -552,8 +707,19 @@ async function saveItem() {
   const custom = document.getElementById('newEmoji').value.trim();
   const emoji = custom || selectedEmoji;
   if (!name) { alert('Please enter a name'); return; }
+  if (!emoji) { alert('Please pick an emoji or type one'); return; }
   closeAdd();
-  await addItemAction(name, emoji);
+  if (editingItemId) {
+    try {
+      setSync('Saving…');
+      await api('updateItem', { id: editingItemId, name, emoji });
+      await refresh();
+    } catch (err) {
+      setSync('Error: ' + err.message, 'error');
+    }
+  } else {
+    await addItemAction(name, emoji);
+  }
 }
 
 function openSettings() {

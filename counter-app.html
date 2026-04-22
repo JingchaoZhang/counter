@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Counter">
+<meta name="theme-color" content="#f8fafc">
+<title>Counter</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro", system-ui, sans-serif;
+    background: #f8fafc;
+    color: #0f172a;
+    min-height: 100vh;
+    overscroll-behavior-y: none;
+    -webkit-user-select: none; user-select: none;
+  }
+  body {
+    padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom) 16px;
+    max-width: 520px; margin: 0 auto;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 4px 12px;
+  }
+  h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.4px; }
+  .date { color: #64748b; font-size: 13px; }
+  .icon-btn {
+    background: white; border: none; width: 40px; height: 40px;
+    border-radius: 12px; font-size: 20px; cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  .icon-btn:active { transform: scale(0.94); }
+
+  /* Sync status */
+  .sync-bar {
+    font-size: 12px; color: #64748b; text-align: center;
+    padding: 4px 0 8px; min-height: 20px;
+  }
+  .sync-bar.error { color: #dc2626; }
+  .sync-bar.success { color: #059669; }
+
+  /* Items */
+  .items { display: flex; flex-direction: column; gap: 12px; }
+  .item-card {
+    background: white; border-radius: 20px; padding: 16px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    display: flex; align-items: center; gap: 14px;
+  }
+  .item-emoji {
+    font-size: 36px; width: 56px; height: 56px;
+    display: flex; align-items: center; justify-content: center;
+    background: #f1f5f9; border-radius: 16px; flex-shrink: 0;
+  }
+  .item-info { flex: 1; min-width: 0; }
+  .item-name {
+    font-size: 16px; font-weight: 600; margin: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .item-meta { font-size: 12px; color: #64748b; margin-top: 2px; }
+  .item-count {
+    font-size: 32px; font-weight: 800; color: #0f172a;
+    font-variant-numeric: tabular-nums; line-height: 1;
+    margin: 4px 0 0;
+  }
+  .item-buttons { display: flex; gap: 8px; flex-shrink: 0; }
+  .count-btn {
+    width: 44px; height: 44px; border: none; border-radius: 12px;
+    font-size: 20px; font-weight: 700; cursor: pointer;
+    font-family: inherit; -webkit-appearance: none;
+  }
+  .count-btn:active { transform: scale(0.92); }
+  .count-btn:disabled { opacity: 0.4; }
+  .btn-minus { background: #f1f5f9; color: #475569; }
+  .btn-plus { background: #0f172a; color: white; }
+
+  /* Expanded stats area (click item to expand) */
+  .item-expanded {
+    display: none;
+    margin-top: 12px; padding-top: 14px;
+    border-top: 1px solid #f1f5f9;
+  }
+  .item-card.expanded .item-expanded { display: block; }
+  .item-card.expanded { flex-wrap: wrap; }
+  .item-expanded { width: 100%; }
+  .stats-mini {
+    display: grid; grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px; margin-bottom: 12px;
+  }
+  .stat-mini {
+    background: #f8fafc; border-radius: 12px; padding: 8px; text-align: center;
+  }
+  .stat-mini-val { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .stat-mini-lbl { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 0.4px; }
+  .chart-wrap-mini { position: relative; height: 120px; margin-top: 4px; }
+  .item-actions { margin-top: 10px; display: flex; justify-content: flex-end; }
+  .remove-btn {
+    background: transparent; border: none; color: #dc2626;
+    font-size: 13px; cursor: pointer; padding: 6px 10px;
+  }
+
+  /* Add button */
+  .add-btn {
+    width: 100%; padding: 16px; margin-top: 16px; margin-bottom: 20px;
+    background: white; color: #0f172a; border: 2px dashed #cbd5e1;
+    border-radius: 16px; font-size: 15px; font-weight: 600; cursor: pointer;
+    font-family: inherit;
+  }
+  .add-btn:active { transform: scale(0.98); background: #f8fafc; }
+
+  .empty {
+    text-align: center; color: #64748b; padding: 60px 20px;
+    background: white; border-radius: 20px; margin-top: 20px;
+  }
+  .empty h3 { margin: 0 0 8px; color: #0f172a; }
+  .empty p { margin: 0; font-size: 14px; }
+
+  /* Modals */
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(15,23,42,0.45);
+    display: none; align-items: flex-end; justify-content: center;
+    z-index: 100;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal {
+    background: white; width: 100%; max-width: 520px;
+    border-radius: 24px 24px 0 0; padding: 24px;
+    padding-bottom: calc(24px + env(safe-area-inset-bottom));
+    animation: slideUp 0.25s ease-out;
+  }
+  @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+  .modal h2 { margin: 0 0 16px; font-size: 18px; }
+  .field { margin-bottom: 14px; }
+  .field label {
+    display: block; font-size: 12px; font-weight: 600;
+    color: #475569; text-transform: uppercase; letter-spacing: 0.4px;
+    margin-bottom: 6px;
+  }
+  .field input {
+    width: 100%; padding: 12px 14px; font-size: 16px;
+    border: 1px solid #e2e8f0; border-radius: 12px;
+    font-family: inherit; -webkit-appearance: none;
+    -webkit-user-select: text; user-select: text;
+  }
+  .field input:focus { outline: none; border-color: #0f172a; }
+  .emoji-row {
+    display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px;
+  }
+  .emoji-pick {
+    width: 40px; height: 40px; border-radius: 10px; border: 1px solid #e2e8f0;
+    background: white; font-size: 20px; cursor: pointer;
+  }
+  .emoji-pick.selected { border-color: #0f172a; border-width: 2px; background: #f1f5f9; }
+  .modal-buttons { display: flex; gap: 10px; margin-top: 8px; }
+  .modal-buttons button {
+    flex: 1; padding: 14px; border: none; border-radius: 12px;
+    font-size: 15px; font-weight: 600; cursor: pointer;
+    font-family: inherit; -webkit-appearance: none;
+  }
+  .btn-cancel { background: #f1f5f9; color: #475569; }
+  .btn-save { background: #0f172a; color: white; }
+
+  /* Setup screen */
+  .setup {
+    background: white; border-radius: 20px; padding: 24px;
+    margin-top: 20px;
+  }
+  .setup h2 { margin: 0 0 8px; font-size: 18px; }
+  .setup p { font-size: 14px; color: #475569; line-height: 1.5; }
+  .setup ol { padding-left: 20px; font-size: 14px; line-height: 1.7; color: #334155; }
+  .setup code {
+    background: #f1f5f9; padding: 2px 6px; border-radius: 4px;
+    font-size: 12px; font-family: ui-monospace, Menlo, monospace;
+  }
+  .setup input {
+    width: 100%; padding: 12px; font-size: 14px;
+    border: 1px solid #e2e8f0; border-radius: 12px;
+    font-family: ui-monospace, Menlo, monospace;
+    -webkit-user-select: text; user-select: text;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1 id="title">Counter</h1>
+    <div class="date" id="dateSub"></div>
+  </div>
+  <button class="icon-btn" onclick="openSettings()" title="Settings">⚙️</button>
+</header>
+
+<div class="sync-bar" id="syncBar">Loading…</div>
+
+<div id="mainContent"></div>
+
+<!-- Add item modal -->
+<div class="modal-backdrop" id="addModal">
+  <div class="modal">
+    <h2>Add item to track</h2>
+    <div class="field">
+      <label>Name</label>
+      <input type="text" id="newName" placeholder="e.g. Apples, Pushups, Water glasses" maxlength="40">
+    </div>
+    <div class="field">
+      <label>Emoji</label>
+      <div class="emoji-row" id="emojiRow"></div>
+      <input type="text" id="newEmoji" placeholder="Or paste any emoji" maxlength="4" style="margin-top:8px">
+    </div>
+    <div class="modal-buttons">
+      <button class="btn-cancel" onclick="closeAdd()">Cancel</button>
+      <button class="btn-save" onclick="saveItem()">Add</button>
+    </div>
+  </div>
+</div>
+
+<!-- Settings modal -->
+<div class="modal-backdrop" id="settingsModal">
+  <div class="modal">
+    <h2>Settings</h2>
+    <div class="field">
+      <label>Apps Script URL</label>
+      <input type="text" id="urlInput" placeholder="https://script.google.com/macros/s/.../exec" style="font-family: ui-monospace, Menlo, monospace; font-size: 13px;">
+    </div>
+    <div class="modal-buttons">
+      <button class="btn-cancel" onclick="closeSettings()">Cancel</button>
+      <button class="btn-save" onclick="saveUrl()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// Config & state
+// ============================================================
+const URL_KEY = 'counterAppScriptUrl_v1';
+const CACHE_KEY = 'counterAppCache_v1';
+const EXPANDED_KEY = 'counterAppExpanded_v1';
+const EMOJI_CHOICES = ['🍎','💧','🏃','💪','📚','☕','🥗','💊','😴','🚬','🍷','🎯'];
+
+let state = { items: [], log: [] };
+let expanded = new Set(JSON.parse(localStorage.getItem(EXPANDED_KEY) || '[]'));
+let charts = {};
+let selectedEmoji = '⭐';
+
+// ============================================================
+// Backend communication
+// ============================================================
+function getUrl() { return localStorage.getItem(URL_KEY) || ''; }
+function setUrl(u) { localStorage.setItem(URL_KEY, u); }
+
+async function api(action, params = {}) {
+  const url = getUrl();
+  if (!url) throw new Error('No Apps Script URL configured');
+
+  // Use POST with text/plain to avoid CORS preflight (Apps Script requirement)
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action, ...params }),
+    redirect: 'follow'
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || 'Unknown error');
+  return data;
+}
+
+function setSync(msg, cls = '') {
+  const bar = document.getElementById('syncBar');
+  bar.textContent = msg;
+  bar.className = 'sync-bar ' + cls;
+}
+
+async function refresh() {
+  if (!getUrl()) { renderSetup(); return; }
+  setSync('Syncing…');
+  try {
+    const data = await api('getAll');
+    state.items = data.items;
+    state.log = data.log;
+    localStorage.setItem(CACHE_KEY, JSON.stringify(state));
+    setSync('Synced ✓', 'success');
+    setTimeout(() => setSync(''), 1500);
+    render();
+  } catch (err) {
+    // Fall back to cache
+    try {
+      const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
+      if (cached) state = cached;
+    } catch (e) {}
+    setSync('Offline — showing cached data', 'error');
+    render();
+  }
+}
+
+// ============================================================
+// Date helpers
+// ============================================================
+function todayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function formatDateSub() {
+  return new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+}
+
+function getLast14Days() {
+  const days = [];
+  const today = new Date(); today.setHours(0,0,0,0);
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date(today); d.setDate(d.getDate() - i);
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    days.push({ key, label: `${d.getMonth()+1}/${d.getDate()}` });
+  }
+  return days;
+}
+
+// ============================================================
+// State helpers
+// ============================================================
+function getCount(itemId, date) {
+  const row = state.log.find(r => r.itemId === itemId && r.date === date);
+  return row ? row.count : 0;
+}
+
+function getStats(itemId) {
+  const rows = state.log.filter(r => r.itemId === itemId && r.count > 0);
+  const total = rows.reduce((s, r) => s + r.count, 0);
+  const days = rows.length;
+  const avg = days > 0 ? (total / days).toFixed(1) : '0';
+  return { total, days, avg };
+}
+
+// ============================================================
+// Actions (optimistic updates)
+// ============================================================
+async function changeCount(itemId, delta) {
+  const date = todayKey();
+  const current = getCount(itemId, date);
+  const next = Math.max(0, current + delta);
+
+  // Optimistic update
+  const existing = state.log.find(r => r.itemId === itemId && r.date === date);
+  if (existing) {
+    if (next === 0) state.log = state.log.filter(r => !(r.itemId === itemId && r.date === date));
+    else existing.count = next;
+  } else if (next > 0) {
+    state.log.push({ itemId, date, count: next });
+  }
+  render();
+
+  // Pulse animation
+  const el = document.querySelector(`[data-count="${itemId}"]`);
+  if (el) {
+    el.style.transition = 'transform 0.15s';
+    el.style.transform = 'scale(1.2)';
+    setTimeout(() => el.style.transform = 'scale(1)', 150);
+  }
+
+  try {
+    await api('changeCount', { id: itemId, date, delta });
+    localStorage.setItem(CACHE_KEY, JSON.stringify(state));
+  } catch (err) {
+    setSync('Failed to save — will retry on refresh', 'error');
+  }
+}
+
+async function addItemAction(name, emoji) {
+  try {
+    setSync('Saving…');
+    const res = await api('addItem', { name, emoji });
+    await refresh();
+  } catch (err) {
+    setSync('Error: ' + err.message, 'error');
+  }
+}
+
+async function removeItemAction(id) {
+  if (!confirm('Remove this item and all its history?')) return;
+  try {
+    setSync('Removing…');
+    await api('removeItem', { id });
+    await refresh();
+  } catch (err) {
+    setSync('Error: ' + err.message, 'error');
+  }
+}
+
+// ============================================================
+// Render
+// ============================================================
+function render() {
+  document.getElementById('dateSub').textContent = formatDateSub();
+
+  const main = document.getElementById('mainContent');
+  if (!getUrl()) { renderSetup(); return; }
+
+  if (state.items.length === 0) {
+    main.innerHTML = `
+      <div class="empty">
+        <h3>Nothing tracked yet</h3>
+        <p>Tap the button below to add your first item.</p>
+      </div>
+      <button class="add-btn" onclick="openAdd()">+ Add item</button>
+    `;
+    return;
+  }
+
+  const today = todayKey();
+  const cards = state.items.map(item => {
+    const count = getCount(item.id, today);
+    const stats = getStats(item.id);
+    const isExpanded = expanded.has(item.id);
+    return `
+      <div class="item-card ${isExpanded ? 'expanded' : ''}" data-item="${item.id}">
+        <div class="item-emoji" onclick="toggleExpand('${item.id}')">${item.emoji}</div>
+        <div class="item-info" onclick="toggleExpand('${item.id}')">
+          <div class="item-name">${escapeHtml(item.name)}</div>
+          <div class="item-meta">Today</div>
+          <div class="item-count" data-count="${item.id}">${count}</div>
+        </div>
+        <div class="item-buttons">
+          <button class="count-btn btn-minus" onclick="changeCount('${item.id}', -1)" ${count === 0 ? 'disabled' : ''}>−</button>
+          <button class="count-btn btn-plus" onclick="changeCount('${item.id}', 1)">+</button>
+        </div>
+        <div class="item-expanded">
+          <div class="stats-mini">
+            <div class="stat-mini"><div class="stat-mini-val">${stats.total}</div><div class="stat-mini-lbl">Total</div></div>
+            <div class="stat-mini"><div class="stat-mini-val">${stats.avg}</div><div class="stat-mini-lbl">Avg/Day</div></div>
+            <div class="stat-mini"><div class="stat-mini-val">${stats.days}</div><div class="stat-mini-lbl">Days</div></div>
+          </div>
+          <div class="chart-wrap-mini"><canvas id="chart-${item.id}"></canvas></div>
+          <div class="item-actions">
+            <button class="remove-btn" onclick="removeItemAction('${item.id}')">Remove item</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  main.innerHTML = `
+    <div class="items">${cards}</div>
+    <button class="add-btn" onclick="openAdd()">+ Add item</button>
+  `;
+
+  // Render charts for expanded items
+  state.items.forEach(item => {
+    if (expanded.has(item.id)) renderChart(item.id);
+  });
+}
+
+function renderChart(itemId) {
+  const canvas = document.getElementById(`chart-${itemId}`);
+  if (!canvas) return;
+  if (charts[itemId]) charts[itemId].destroy();
+
+  const days = getLast14Days();
+  const counts = days.map(d => getCount(itemId, d.key));
+  const today = todayKey();
+
+  charts[itemId] = new Chart(canvas.getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: days.map(d => d.label),
+      datasets: [{
+        data: counts,
+        backgroundColor: days.map(d => d.key === today ? '#0f172a' : '#cbd5e1'),
+        borderRadius: 4, borderSkipped: false
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { displayColors: false, callbacks: { label: c => `${c.parsed.y}` } }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 9 }, color: '#64748b' } },
+        y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0, font: { size: 9 }, color: '#64748b' }, grid: { color: '#f1f5f9' } }
+      }
+    }
+  });
+}
+
+function renderSetup() {
+  document.getElementById('mainContent').innerHTML = `
+    <div class="setup">
+      <h2>One-time setup</h2>
+      <p>Connect this app to your Google Sheet so your data syncs and is stored in your own Google account.</p>
+      <ol>
+        <li>Create a new <a href="https://sheets.new" target="_blank">Google Sheet</a></li>
+        <li>In the sheet: <strong>Extensions → Apps Script</strong></li>
+        <li>Delete the default code. Paste in the contents of <code>apps-script-backend.gs</code> (Claude gave you this file).</li>
+        <li>Click <strong>Save</strong> (💾 icon)</li>
+        <li>Click <strong>Deploy → New deployment</strong></li>
+        <li>Gear icon → choose <strong>Web app</strong></li>
+        <li>Execute as: <strong>Me</strong> · Who has access: <strong>Anyone</strong></li>
+        <li>Click <strong>Deploy</strong>, authorize when asked (click "Advanced" → "Go to... (unsafe)" — it's your own script)</li>
+        <li>Copy the <strong>Web app URL</strong> and paste below</li>
+      </ol>
+      <div class="field" style="margin-top:16px">
+        <label>Apps Script Web App URL</label>
+        <input type="text" id="setupUrl" placeholder="https://script.google.com/macros/s/.../exec">
+      </div>
+      <div class="modal-buttons">
+        <button class="btn-save" onclick="saveSetupUrl()">Connect</button>
+      </div>
+    </div>
+  `;
+}
+
+// ============================================================
+// UI handlers
+// ============================================================
+function toggleExpand(id) {
+  if (expanded.has(id)) expanded.delete(id);
+  else expanded.add(id);
+  localStorage.setItem(EXPANDED_KEY, JSON.stringify([...expanded]));
+  render();
+}
+
+function openAdd() {
+  document.getElementById('addModal').classList.add('open');
+  document.getElementById('newName').value = '';
+  document.getElementById('newEmoji').value = '';
+  selectedEmoji = EMOJI_CHOICES[0];
+  renderEmojiPicker();
+  setTimeout(() => document.getElementById('newName').focus(), 100);
+}
+function closeAdd() { document.getElementById('addModal').classList.remove('open'); }
+
+function renderEmojiPicker() {
+  document.getElementById('emojiRow').innerHTML = EMOJI_CHOICES.map(e => `
+    <button class="emoji-pick ${e === selectedEmoji ? 'selected' : ''}" onclick="pickEmoji('${e}')">${e}</button>
+  `).join('');
+}
+function pickEmoji(e) {
+  selectedEmoji = e;
+  document.getElementById('newEmoji').value = '';
+  renderEmojiPicker();
+}
+
+async function saveItem() {
+  const name = document.getElementById('newName').value.trim();
+  const custom = document.getElementById('newEmoji').value.trim();
+  const emoji = custom || selectedEmoji;
+  if (!name) { alert('Please enter a name'); return; }
+  closeAdd();
+  await addItemAction(name, emoji);
+}
+
+function openSettings() {
+  document.getElementById('urlInput').value = getUrl();
+  document.getElementById('settingsModal').classList.add('open');
+}
+function closeSettings() { document.getElementById('settingsModal').classList.remove('open'); }
+function saveUrl() {
+  const u = document.getElementById('urlInput').value.trim();
+  setUrl(u);
+  closeSettings();
+  refresh();
+}
+function saveSetupUrl() {
+  const u = document.getElementById('setupUrl').value.trim();
+  if (!u) { alert('Please paste the URL'); return; }
+  setUrl(u);
+  refresh();
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ============================================================
+// Init
+// ============================================================
+// Load cache immediately for fast paint
+try {
+  const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
+  if (cached) state = cached;
+} catch (e) {}
+
+refresh();
+
+// Refresh when tab regains focus (e.g. reopening PWA)
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) refresh();
+});
+</script>
+</body>
+</html>
